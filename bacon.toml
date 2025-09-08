@@ -1,0 +1,3 @@
+[jobs.run]
+command = ["cargo", "run"]
+on_change_strategy = "kill_then_restart"
