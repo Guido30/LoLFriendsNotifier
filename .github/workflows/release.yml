@@ -28,10 +28,16 @@ jobs:
           cargo build --release
           mkdir artifacts
           copy target\release\Friends-Notifier.exe artifacts\
+          xcopy assets artifacts\assets\ /E /I
+
+      - name: Create ZIP
+        run: |
+          cd artifacts
+          powershell Compress-Archive -Path * -DestinationPath ../Friends-Notifier.zip
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/Friends-Notifier.exe
+          files: Friends-Notifier.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

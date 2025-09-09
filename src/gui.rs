@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use crate::client;
 
-const APP_COLOR_STATUS_UNAVAILABLE: Color32 = Color32::from_rgb(70, 70, 70);
+const APP_COLOR_STATUS_UNAVAILABLE: Color32 = Color32::from_rgb(70, 70, 70); // TODO implement theming for this app
 const ASSET_ICON_GEAR: ImageSource = egui::include_image!("icons/bootstrap_gear.svg");
 const ASSET_ICON_PLUS: ImageSource = egui::include_image!("icons/bootstrap_plus.svg");
 const ASSET_ICON_DASH: ImageSource = egui::include_image!("icons/bootstrap_dash.svg");
@@ -31,6 +31,21 @@ const ASSET_ICON_CIRCLE_FILLED_RED: ImageSource = egui::include_image!("icons/vs
 const ASSET_ICON_CIRCLE_FILLED_GREEN: ImageSource = egui::include_image!("icons/vscode-codicon_circle-filled-green.svg");
 const ALLOWED_MIN_FRIENDS: usize = 1;
 const ALLOWED_MAX_FRIENDS: usize = 10;
+pub const ASSET_SOUNDS: [(&str, &str); 13] = [
+    ("Sound 1", "assets/notification-1.mp3"),
+    ("Sound 2", "assets/notification-2.mp3"),
+    ("Sound 3", "assets/notification-3.mp3"),
+    ("Sound 4", "assets/notification-4.mp3"),
+    ("Sound 5", "assets/notification-5.mp3"),
+    ("Sound 6", "assets/notification-6.mp3"),
+    ("Sound 7", "assets/notification-7.mp3"),
+    ("Sound 8", "assets/notification-8.mp3"),
+    ("Sound 9", "assets/notification-9.mp3"),
+    ("Sound 10", "assets/notification-10.mp3"),
+    ("Sound 11", "assets/notification-11.mp3"),
+    ("Sound 12", "assets/notification-12.mp3"),
+    ("Sound 13", "assets/notification-13.mp3"),
+];
 
 type FriendAvailability = String;
 type FriendRiotId = String;
@@ -80,6 +95,9 @@ pub enum GuiMessage {
     NoMessage,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct PlaySound(pub SoundPath);
+
 // We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
@@ -89,6 +107,8 @@ pub struct FriendNotifierApp {
     c_sx: Sender<ClientMessage>,
     #[serde(skip)]
     g_rx: Receiver<GuiMessage>,
+    #[serde(skip)]
+    s_sx: Sender<PlaySound>,
     #[serde(skip)]
     client_status: bool,
     #[serde(skip)]
@@ -140,12 +160,15 @@ impl FriendNotifierApp {
         let client = Arc::new(Mutex::new(LeagueClient::new()));
         let (c_sx, c_rx) = channel::<ClientMessage>();
         let (g_sx, g_rx) = channel::<GuiMessage>();
+        let (s_sx, s_rx) = channel::<PlaySound>();
         // Initialize client threads
         client::threaded_client_on_timer(c_sx.clone(), g_sx.clone(), Some(client.clone()));
-        client::threaded_client_message_handler(app.friends.clone(), c_rx, c_sx.clone(), g_sx.clone(), Some(client.clone()));
+        client::threaded_message_handler(app.friends.clone(), c_rx, c_sx.clone(), g_sx.clone(), Some(client.clone()));
+        client::threaded_sound_player(s_rx);
 
         app.c_sx = c_sx;
         app.g_rx = g_rx;
+        app.s_sx = s_sx;
         app
     }
 }
@@ -160,6 +183,13 @@ impl App for FriendNotifierApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+        // Force egui to repaint every 16ms (60 FPS), avoids 'pausing' the application
+        // background threads are also paused if a repaint is not esplicitly requested
+        // meaning notifying is out of sync with actual specified Friends timers and only
+        // trigger on user interaction with the gui, there might be performance implications
+        // by running it every loop, TODO call ctx.request_repaint when needed from the other threads
+        ctx.request_repaint();
+
         // Handle messages to mutate state before initializing widgets
         let msg = self.g_rx.try_recv().unwrap_or_default();
         match msg {
@@ -192,8 +222,8 @@ impl App for FriendNotifierApp {
                             let _ = self.c_sx.send(ClientMessage::SpawnTimer(friend.clone()));
                         }
 
-                        // Now that conditions are met, notify with a sound in the client thread
-                        let _ = self.c_sx.send(ClientMessage::Notify(friend.clone()));
+                        // Now that conditions are met, play the sound associated with this Friend
+                        let _ = self.s_sx.send(PlaySound(friend.sound.1.clone()));
                     }
                 };
             }
@@ -286,22 +316,25 @@ impl App for FriendNotifierApp {
                                     // Sound Combobox
                                     let before = &friend.sound.0.clone();
                                     ComboBox::from_id_salt(format!("box{i}")).selected_text(&friend.sound.0).show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut friend.sound.0, "Sound 1".to_string(), "Sound 1");
-                                        ui.selectable_value(&mut friend.sound.0, "Sound 2".to_string(), "Sound 2");
-                                        ui.selectable_value(&mut friend.sound.0, "Sound 3".to_string(), "Sound 3");
-                                        ui.selectable_value(&mut friend.sound.0, "Sound 4".to_string(), "Sound 4");
-                                        ui.selectable_value(&mut friend.sound.0, "Sound 5".to_string(), "Sound 5");
-                                        ui.selectable_value(&mut friend.sound.0, "Sound 6".to_string(), "Sound 6");
-                                        ui.selectable_value(&mut friend.sound.0, "Sound 7".to_string(), "Sound 7");
-                                        ui.selectable_value(&mut friend.sound.0, "Sound 8".to_string(), "Sound 8");
-                                        ui.selectable_value(&mut friend.sound.0, "Sound 9".to_string(), "Sound 9");
-                                        ui.selectable_value(&mut friend.sound.0, "Sound 10".to_string(), "Sound 10");
-                                        ui.selectable_value(&mut friend.sound.0, "Sound 11".to_string(), "Sound 11");
-                                        ui.selectable_value(&mut friend.sound.0, "Sound 12".to_string(), "Sound 12");
-                                        ui.selectable_value(&mut friend.sound.0, "Sound 13".to_string(), "Sound 13");
+                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[0].0.to_string(), ASSET_SOUNDS[0].0);
+                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[1].0.to_string(), ASSET_SOUNDS[1].0);
+                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[2].0.to_string(), ASSET_SOUNDS[2].0);
+                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[3].0.to_string(), ASSET_SOUNDS[3].0);
+                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[4].0.to_string(), ASSET_SOUNDS[4].0);
+                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[5].0.to_string(), ASSET_SOUNDS[5].0);
+                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[6].0.to_string(), ASSET_SOUNDS[6].0);
+                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[7].0.to_string(), ASSET_SOUNDS[7].0);
+                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[8].0.to_string(), ASSET_SOUNDS[8].0);
+                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[9].0.to_string(), ASSET_SOUNDS[9].0);
+                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[10].0.to_string(), ASSET_SOUNDS[10].0);
+                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[11].0.to_string(), ASSET_SOUNDS[11].0);
+                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[12].0.to_string(), ASSET_SOUNDS[12].0);
                                     });
                                     if &friend.sound.0 != before {
-                                        dbg!(())
+                                        // Update the sound if it was changes using the checkbox
+                                        if let Some(s) = ASSET_SOUNDS.iter().find(|_s| _s.0 == friend.sound.0) {
+                                            friend.sound = (s.0.to_string(), s.1.to_string());
+                                        }
                                     }
                                     ui.separator();
                                     // Friend Name text box
@@ -336,10 +369,12 @@ impl Default for FriendNotifierApp {
     fn default() -> Self {
         let (c_sx, _) = channel::<ClientMessage>();
         let (_, g_rx) = channel::<GuiMessage>();
+        let (s_sx, _) = channel::<PlaySound>();
         Self {
             friends: vec![Friend::default()],
             c_sx,
             g_rx,
+            s_sx,
             client_status: false,
             settings_open: false,
         }
@@ -353,7 +388,7 @@ impl Default for Friend {
             timer_id: Uuid::new_v4(),
             enabled: false,
             name: "".to_string(),
-            sound: ("Sound 1".to_string(), "assets/notification-1.mp3".to_string()),
+            sound: (ASSET_SOUNDS[0].0.to_string(), ASSET_SOUNDS[0].1.to_string()),
             notify_timer: 5,
             is_repeat: false,
             status: FriendStatus::default(),
