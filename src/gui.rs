@@ -1,51 +1,30 @@
 use eframe::{
     App, CreationContext,
     egui::{
-        self, Align, Button, Color32, ComboBox, DragValue,
+        self, Align, Button, ComboBox, CursorIcon, DragValue,
         FontFamily::Proportional,
-        FontId, Frame, Id, Image, ImageSource, Layout, Modal, RichText, ScrollArea, TextEdit,
+        FontId, Frame, Id, Image, Layout, Margin, Modal, RichText, ScrollArea, Slider, TextEdit,
         TextStyle::*,
         Vec2,
         containers::{CentralPanel, TopBottomPanel},
     },
 };
 use lolclientapi_rs::blocking::LeagueClient;
+use notify_rust::Notification;
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::thread;
 use uuid::Uuid;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::client;
+use crate::consts;
+use crate::threads;
 
-const APP_COLOR_STATUS_UNAVAILABLE: Color32 = Color32::from_rgb(70, 70, 70); // TODO implement theming for this app
-const ASSET_ICON_GEAR: ImageSource = egui::include_image!("icons/bootstrap_gear.svg");
-const ASSET_ICON_PLUS: ImageSource = egui::include_image!("icons/bootstrap_plus.svg");
-const ASSET_ICON_DASH: ImageSource = egui::include_image!("icons/bootstrap_dash.svg");
-const ASSET_ICON_CHECK: ImageSource = egui::include_image!("icons/bootstrap_check.svg");
-const ASSET_ICON_REPEAT: ImageSource = egui::include_image!("icons/bootstrap_repeat.svg");
-const ASSET_ICON_CIRCLE_FILLED_GREY: ImageSource = egui::include_image!("icons/vscode-codicon_circle-filled-grey.svg");
-const ASSET_ICON_CIRCLE_FILLED_RED: ImageSource = egui::include_image!("icons/vscode-codicon_circle-filled-red.svg");
-const ASSET_ICON_CIRCLE_FILLED_GREEN: ImageSource = egui::include_image!("icons/vscode-codicon_circle-filled-green.svg");
 const ALLOWED_MIN_FRIENDS: usize = 1;
 const ALLOWED_MAX_FRIENDS: usize = 10;
-pub const ASSET_SOUNDS: [(&str, &str); 13] = [
-    ("Sound 1", "assets/notification-1.mp3"),
-    ("Sound 2", "assets/notification-2.mp3"),
-    ("Sound 3", "assets/notification-3.mp3"),
-    ("Sound 4", "assets/notification-4.mp3"),
-    ("Sound 5", "assets/notification-5.mp3"),
-    ("Sound 6", "assets/notification-6.mp3"),
-    ("Sound 7", "assets/notification-7.mp3"),
-    ("Sound 8", "assets/notification-8.mp3"),
-    ("Sound 9", "assets/notification-9.mp3"),
-    ("Sound 10", "assets/notification-10.mp3"),
-    ("Sound 11", "assets/notification-11.mp3"),
-    ("Sound 12", "assets/notification-12.mp3"),
-    ("Sound 13", "assets/notification-13.mp3"),
-];
 
 type FriendAvailability = String;
 type FriendRiotId = String;
@@ -76,110 +55,89 @@ pub enum FriendStatus {
 }
 
 #[derive(Debug, Clone, Default)]
-pub enum ClientMessage {
-    SpawnTimer(Friend),
-    Notify(Friend),
-    AddFriend(Friend),
-    RemoveFriend(Friend),
-    UpdateName(Friend),
-    #[default]
-    NoMessage,
-}
-
-#[derive(Debug, Clone, Default)]
 pub enum GuiMessage {
     ClientStatus(bool),
     FriendStatus(Vec<(FriendRiotId, FriendAvailability)>),
+    SpawnTimer(Friend),
     TimerTriggered(Friend),
     #[default]
     NoMessage,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct PlaySound(pub SoundPath);
+pub enum SoundMessage {
+    PlaySound(String),
+    SetVolume(u8),
+    #[default]
+    NoMessage,
+}
 
 // We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
-pub struct FriendNotifierApp {
+pub struct FriendsNotifierApp {
     friends: Vec<Friend>,
     #[serde(skip)]
-    c_sx: Sender<ClientMessage>,
+    g_sx: Sender<GuiMessage>,
     #[serde(skip)]
     g_rx: Receiver<GuiMessage>,
     #[serde(skip)]
-    s_sx: Sender<PlaySound>,
+    s_sx: Sender<SoundMessage>,
     #[serde(skip)]
     client_status: bool,
     #[serde(skip)]
     pub settings_open: bool,
+    pub native_notification: bool,
+    pub volume: u8,
 }
 
-impl FriendNotifierApp {
+impl FriendsNotifierApp {
     // Called once before the first frame to initialize gui configuration.
     pub fn new(cc: &CreationContext<'_>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
 
         // Redefine Global Fonts
         let text_styles: BTreeMap<_, _> = [
-            (Heading, FontId::new(28.0, Proportional)),
-            (Name("Heading2".into()), FontId::new(23.0, Proportional)),
-            (Name("Context".into()), FontId::new(21.0, Proportional)),
-            (Body, FontId::new(12.0, Proportional)),
-            (Monospace, FontId::new(12.0, Proportional)),
+            (Heading, FontId::new(18.0, Proportional)),
+            (Body, FontId::new(10.0, Proportional)),
+            (Monospace, FontId::new(10.0, Proportional)),
             (Button, FontId::new(12.0, Proportional)),
             (Small, FontId::new(8.0, Proportional)),
         ]
         .into();
         cc.egui_ctx.all_styles_mut(move |style| {
             style.text_styles = text_styles.clone();
-            #[cfg(debug_assertions)]
-            {
-                // style.debug = DebugOptions {
-                //     debug_on_hover: true,
-                //     debug_on_hover_with_all_modifiers: false,
-                //     hover_shows_next: true,
-                //     show_expand_height: true,
-                //     show_expand_width: true,
-                //     show_interactive_widgets: false,
-                //     show_resize: true,
-                //     show_unaligned: true,
-                //     show_widget_hits: false,
-                // };
-            }
         });
 
-        let mut app: FriendNotifierApp;
+        let mut app: FriendsNotifierApp;
         // Load previous app state (if any).
         if let Some(storage) = cc.storage {
             app = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         } else {
-            app = FriendNotifierApp::default();
+            app = FriendsNotifierApp::default();
         }
 
         let client = Arc::new(Mutex::new(LeagueClient::new()));
-        let (c_sx, c_rx) = channel::<ClientMessage>();
         let (g_sx, g_rx) = channel::<GuiMessage>();
-        let (s_sx, s_rx) = channel::<PlaySound>();
+        let (s_sx, s_rx) = channel::<SoundMessage>();
         // Initialize client threads
-        client::threaded_client_on_timer(c_sx.clone(), g_sx.clone(), Some(client.clone()));
-        client::threaded_message_handler(app.friends.clone(), c_rx, c_sx.clone(), g_sx.clone(), Some(client.clone()));
-        client::threaded_sound_player(s_rx);
+        threads::league_client(g_sx.clone(), Some(client.clone()));
+        threads::sound_handler(s_rx);
 
-        app.c_sx = c_sx;
+        app.g_sx = g_sx;
         app.g_rx = g_rx;
         app.s_sx = s_sx;
         app
     }
 }
 
-impl App for FriendNotifierApp {
+impl App for FriendsNotifierApp {
     fn save(&mut self, _storage: &mut dyn eframe::Storage) {
         eframe::set_value(_storage, eframe::APP_KEY, &self);
     }
 
     fn auto_save_interval(&self) -> Duration {
-        Duration::from_secs(10)
+        Duration::from_secs(30)
     }
 
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
@@ -193,6 +151,8 @@ impl App for FriendNotifierApp {
         // Handle messages to mutate state before initializing widgets
         let msg = self.g_rx.try_recv().unwrap_or_default();
         match msg {
+            // Set all friends statuses everytime the background thread retrieves them from the lcu api
+            // so that the gui can display them accordingly
             GuiMessage::FriendStatus(fr) => {
                 for f in self.friends.iter_mut() {
                     match fr.iter().find(|_f| _f.0 == f.name.to_lowercase()) {
@@ -212,171 +172,251 @@ impl App for FriendNotifierApp {
             GuiMessage::ClientStatus(status) => {
                 self.client_status = status;
             }
+            // Spawn a timer thread when a friend is enabled, at timeout try to send a notification
+            GuiMessage::SpawnTimer(f) => {
+                let g_sx = self.g_sx.clone();
+                thread::spawn(move || {
+                    thread::sleep(Duration::from_secs(f.notify_timer as u64));
+                    let _ = g_sx.send(GuiMessage::TimerTriggered(f));
+                });
+            }
             // When timer is triggered we check if conditions changed while waiting for the timer
             GuiMessage::TimerTriggered(fr) => {
                 if let Some(friend) = self.friends.iter().find(|f| f == &&fr) {
-                    // Friend must be online and timer_id must match
+                    // Friend must be online and timer_id matches
+                    // Timer_id mismatch happens because the background thread that triggers after
+                    // the defined timer times out has no idea whether this was the the original call to
+                    // spawn it or a different one for the same friend (each time a friend is enabled it will spawn a timer)
+                    // and since timer_id is regenerated everytime a friend is enabled we make sure it was the
+                    // last call to spawn it by comparing the timer id
                     if matches!(friend.status, FriendStatus::Online) && friend.timer_id == fr.timer_id {
                         // Handle repeating the notification
                         if friend.is_repeat {
-                            let _ = self.c_sx.send(ClientMessage::SpawnTimer(friend.clone()));
+                            let _ = self.g_sx.send(GuiMessage::SpawnTimer(friend.clone()));
                         }
-
                         // Now that conditions are met, play the sound associated with this Friend
-                        let _ = self.s_sx.send(PlaySound(friend.sound.1.clone()));
+                        let _ = self.s_sx.send(SoundMessage::PlaySound(friend.sound.1.clone()));
+                        // Send the windows notification if enabled
+                        if self.native_notification {
+                            let _ = Notification::new()
+                                .appname("Friends Notifier")
+                                .timeout(Duration::from_millis(5000))
+                                .body(&format!("{} is Online!", fr.name))
+                                .auto_icon()
+                                .show()
+                                .unwrap_err();
+                        };
                     }
                 };
             }
             _ => {}
         }
 
-        // Initialize widgets based on current state
-        let client_status_img = match self.client_status {
-            true => Image::new(ASSET_ICON_CIRCLE_FILLED_GREEN),
-            false => Image::new(ASSET_ICON_CIRCLE_FILLED_RED),
-        };
-
+        // Start defining the gui and its interactions with the state
+        // Footer of this app, contains settings btn and client status widgets
         TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             Frame::new().inner_margin(Vec2::new(0.0, 5.0)).show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    let settings_btn = Button::image_and_text(Image::new(ASSET_ICON_GEAR), "Settings");
+                    let settings_btn = Button::image_and_text(Image::new(consts::ASSET_ICON_GEAR), "Settings");
                     if ui.add(settings_btn).clicked() {
                         self.settings_open = !self.settings_open;
                     };
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.style_mut().spacing.item_spacing = [5.0, 0.0].into();
-                        ui.add(client_status_img);
+                        ui.add(match self.client_status {
+                            true => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_GREEN),
+                            false => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_RED),
+                        });
                         ui.label(RichText::from("Client").italics());
                     })
                 });
             });
         });
-        CentralPanel::default().show(ctx, |ui| {
-            let panel_style = ui.style_mut();
-            panel_style.spacing.item_spacing = [0.0, 5.0].into();
-            // Table Header
-            ui.horizontal(|ui| {
-                ui.add_space(25.0);
-                ui.label("Name#Tag");
-                ui.add_space(80.0);
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.add_space(68.0);
-                    ui.label("Repeat");
+
+        // Main central layouts and widgets of the app
+        CentralPanel::default()
+            .frame(
+                // New frame required to set margin
+                Frame::new()
+                    .inner_margin(Margin {
+                        left: 5,
+                        right: 5,
+                        top: 0,
+                        bottom: 5,
+                    })
+                    .fill(ctx.theme().default_visuals().panel_fill),
+            )
+            .show(ctx, |ui| {
+                // Table Header
+                ui.style_mut().spacing.item_spacing = [0.0, 3.0].into();
+                ui.horizontal(|ui| {
+                    ui.set_height(2.0);
+                    ui.add_space(25.0);
+                    ui.label("Name#Tag").on_hover_cursor(CursorIcon::Default);
                     ui.add_space(80.0);
-                    ui.label("Sound");
-                })
-            });
-            ui.separator();
-            // Table Body
-            ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
-                ui.with_layout(Layout::right_to_left(Align::Max), |ui| {
-                    ui.style_mut().spacing.item_spacing = [5.0, 2.0].into();
-                    if ui.add(Button::image(Image::new(ASSET_ICON_DASH))).clicked() && self.friends.len() > ALLOWED_MIN_FRIENDS {
-                        let _f = self.friends.pop().unwrap();
-                        let _ = self.c_sx.send(ClientMessage::RemoveFriend(_f));
-                    };
-                    if ui.add(Button::image(Image::new(ASSET_ICON_PLUS))).clicked() && self.friends.len() < ALLOWED_MAX_FRIENDS {
-                        let _f = Friend::default();
-                        self.friends.push(_f.clone());
-                        let _ = self.c_sx.send(ClientMessage::AddFriend(_f));
-                    };
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.add_space(70.0);
+                        ui.label("Repeat").on_hover_cursor(CursorIcon::Default);
+                        ui.add_space(82.0);
+                        ui.label("Sound").on_hover_cursor(CursorIcon::Default);
+                    })
                 });
-                ui.with_layout(Layout::top_down(Align::Center), |ui| {
-                    ScrollArea::vertical().show(ui, |ui| {
-                        for (i, friend) in self.friends.iter_mut().enumerate() {
-                            ui.horizontal(|ui| {
-                                ui.style_mut().spacing.item_spacing = [2.0, 0.0].into();
-                                // Friend Notification Enabling
-                                if ui.add(Button::image(ASSET_ICON_CHECK).selected(friend.enabled)).clicked() {
-                                    friend.enabled = !friend.enabled;
-                                    friend.timer_id = Uuid::new_v4();
-                                    if friend.enabled {
-                                        let _ = self.c_sx.send(ClientMessage::SpawnTimer(friend.clone()));
-                                    };
-                                };
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    ui.style_mut().spacing.button_padding = [10.0, 0.0].into();
-                                    // Friend status icon
-                                    let friend_status_img = match friend.status {
-                                        FriendStatus::Online => Image::new(ASSET_ICON_CIRCLE_FILLED_GREEN),
-                                        FriendStatus::Mobile => Image::new(ASSET_ICON_CIRCLE_FILLED_GREY),
-                                        FriendStatus::Offline => Image::new(ASSET_ICON_CIRCLE_FILLED_RED),
-                                    };
-                                    ui.add(friend_status_img);
-                                    ui.separator();
-                                    // Repeat Notification Buttons
-                                    ui.add_enabled(
-                                        !friend.enabled,
-                                        DragValue::new(&mut friend.notify_timer).range(5..=100).suffix("s").update_while_editing(false),
-                                    );
-                                    if ui.add(Button::image(ASSET_ICON_REPEAT).selected(friend.is_repeat)).clicked() {
-                                        friend.is_repeat = !friend.is_repeat;
-                                    };
-                                    ui.separator();
-                                    // Sound Combobox
-                                    let before = &friend.sound.0.clone();
-                                    ComboBox::from_id_salt(format!("box{i}")).selected_text(&friend.sound.0).show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[0].0.to_string(), ASSET_SOUNDS[0].0);
-                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[1].0.to_string(), ASSET_SOUNDS[1].0);
-                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[2].0.to_string(), ASSET_SOUNDS[2].0);
-                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[3].0.to_string(), ASSET_SOUNDS[3].0);
-                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[4].0.to_string(), ASSET_SOUNDS[4].0);
-                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[5].0.to_string(), ASSET_SOUNDS[5].0);
-                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[6].0.to_string(), ASSET_SOUNDS[6].0);
-                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[7].0.to_string(), ASSET_SOUNDS[7].0);
-                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[8].0.to_string(), ASSET_SOUNDS[8].0);
-                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[9].0.to_string(), ASSET_SOUNDS[9].0);
-                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[10].0.to_string(), ASSET_SOUNDS[10].0);
-                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[11].0.to_string(), ASSET_SOUNDS[11].0);
-                                        ui.selectable_value(&mut friend.sound.0, ASSET_SOUNDS[12].0.to_string(), ASSET_SOUNDS[12].0);
-                                    });
-                                    if &friend.sound.0 != before {
-                                        // Update the sound if it was changes using the checkbox
-                                        if let Some(s) = ASSET_SOUNDS.iter().find(|_s| _s.0 == friend.sound.0) {
-                                            friend.sound = (s.0.to_string(), s.1.to_string());
-                                        }
-                                    }
-                                    ui.separator();
-                                    // Friend Name text box
-                                    if ui
-                                        .add_sized(ui.available_size(), TextEdit::singleline(&mut friend.name).interactive(!friend.enabled))
-                                        .changed()
-                                    {
-                                        let _ = self.c_sx.send(ClientMessage::UpdateName(friend.clone()));
-                                    };
+                ui.separator();
+                // Table Body, we start defining it from the most outer widgets/layouts
+                // so later the main ScrollArea can expand to fill the whole window space
+                ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
+                    ui.with_layout(Layout::right_to_left(Align::Max), |ui| {
+                        ui.horizontal(|ui| {
+                            // New frame 'container' to define some top margin
+                            Frame::new()
+                                .inner_margin(Margin {
+                                    top: 2,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 2,
                                 })
-                            });
-                            ui.separator();
-                        }
+                                .show(ui, |ui| {
+                                    // Add/Remove rows buttons are added
+                                    ui.style_mut().spacing.item_spacing = [5.0, 0.0].into();
+                                    if ui.add(Button::image(Image::new(consts::ASSET_ICON_DASH))).clicked() && self.friends.len() > ALLOWED_MIN_FRIENDS {
+                                        let _f = self.friends.pop().unwrap();
+                                    };
+                                    if ui.add(Button::image(Image::new(consts::ASSET_ICON_PLUS))).clicked() && self.friends.len() < ALLOWED_MAX_FRIENDS {
+                                        let _f = Friend::default();
+                                        self.friends.push(_f.clone());
+                                    };
+                                });
+                        });
+                    });
+                    ui.with_layout(Layout::top_down(Align::Center), |ui| {
+                        // Main scroll area of this app where friend rows will be added
+                        // Has to be the last nested child so it can take as much space left within the main window
+                        ScrollArea::vertical().show(ui, |ui| {
+                            for (i, friend) in self.friends.iter_mut().enumerate() {
+                                ui.horizontal(|ui| {
+                                    ui.style_mut().spacing.item_spacing = [2.0, 0.0].into();
+                                    // Friend notification enabling button widget
+                                    if ui.add(Button::image(consts::ASSET_ICON_CHECK).selected(friend.enabled)).clicked() {
+                                        friend.enabled = !friend.enabled;
+                                        friend.timer_id = Uuid::new_v4();
+                                        if friend.enabled {
+                                            let _ = self.g_sx.send(GuiMessage::SpawnTimer(friend.clone()));
+                                        };
+                                    };
+                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                        ui.style_mut().spacing.button_padding = [10.0, 0.0].into();
+                                        // Friend status icon widget
+                                        let friend_status_img = match friend.status {
+                                            FriendStatus::Online => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_GREEN),
+                                            FriendStatus::Mobile => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_GREY),
+                                            FriendStatus::Offline => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_RED),
+                                        };
+                                        ui.add(friend_status_img);
+                                        ui.separator();
+                                        // Repeat notification button and value widgets
+                                        ui.add_enabled(
+                                            !friend.enabled,
+                                            DragValue::new(&mut friend.notify_timer).range(5..=100).suffix("s").update_while_editing(false),
+                                        );
+                                        if ui.add(Button::image(consts::ASSET_ICON_REPEAT).selected(friend.is_repeat)).clicked() {
+                                            friend.is_repeat = !friend.is_repeat;
+                                        };
+                                        ui.separator();
+                                        // Friend specific sound, combobox selector widget
+                                        let before = &friend.sound.0.clone();
+                                        ComboBox::from_id_salt(format!("box{i}")).selected_text(&friend.sound.0).show_ui(ui, |ui| {
+                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[0].0.to_string(), consts::ASSET_SOUNDS[0].0);
+                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[1].0.to_string(), consts::ASSET_SOUNDS[1].0);
+                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[2].0.to_string(), consts::ASSET_SOUNDS[2].0);
+                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[3].0.to_string(), consts::ASSET_SOUNDS[3].0);
+                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[4].0.to_string(), consts::ASSET_SOUNDS[4].0);
+                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[5].0.to_string(), consts::ASSET_SOUNDS[5].0);
+                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[6].0.to_string(), consts::ASSET_SOUNDS[6].0);
+                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[7].0.to_string(), consts::ASSET_SOUNDS[7].0);
+                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[8].0.to_string(), consts::ASSET_SOUNDS[8].0);
+                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[9].0.to_string(), consts::ASSET_SOUNDS[9].0);
+                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[10].0.to_string(), consts::ASSET_SOUNDS[10].0);
+                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[11].0.to_string(), consts::ASSET_SOUNDS[11].0);
+                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[12].0.to_string(), consts::ASSET_SOUNDS[12].0);
+                                        });
+                                        // Handle changing the underlying sound played when notifying for this friend
+                                        if &friend.sound.0 != before {
+                                            if let Some(s) = consts::ASSET_SOUNDS.iter().find(|_s| _s.0 == friend.sound.0) {
+                                                friend.sound = (s.0.to_string(), s.1.to_string());
+                                                let _ = self.s_sx.send(SoundMessage::PlaySound(friend.sound.1.clone()));
+                                            }
+                                        }
+                                        ui.separator();
+                                        // Finally the friend name box widget
+                                        ui.add_sized(
+                                            ui.available_size(),
+                                            TextEdit::singleline(&mut friend.name).vertical_align(Align::Center).interactive(!friend.enabled),
+                                        )
+                                    })
+                                });
+                                ui.separator();
+                            }
+                        });
                     });
                 });
             });
-        });
-        if self.settings_open {
-            if Modal::new(Id::new("settings_modal"))
+        // Settings modal, only drawn when it is supposed to be open
+        if self.settings_open
+            && Modal::new(Id::new("settings_modal"))
                 .show(ctx, |ui| {
-                    ui.label("Testing");
+                    ui.set_max_width(200.0);
+                    ui.horizontal(|ui| {
+                        ui.heading("Settings").on_hover_cursor(CursorIcon::Default);
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            ui.add_space(10.0);
+                            if ui.add(Button::new("X").frame(false)).clicked() {
+                                self.settings_open = false;
+                            };
+                        })
+                    });
+                    ui.separator();
+
+                    Frame::new().inner_margin(Vec2::new(10.0, 10.0)).show(ui, |ui| {
+                        ui.spacing_mut().item_spacing = [0.0, 1.0].into();
+                        ui.horizontal(|ui| {
+                            ui.label("Volume").on_hover_cursor(CursorIcon::Default);
+
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                if ui.add_sized(ui.available_size(), Slider::new(&mut self.volume, 0..=100).show_value(false)).drag_stopped() {
+                                    let _ = self.s_sx.send(SoundMessage::SetVolume(self.volume));
+                                };
+                            })
+                        });
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            ui.label("Windows Notification");
+
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                ui.checkbox(&mut self.native_notification, "");
+                            })
+                        });
+                    });
                 })
                 .should_close()
-            {
-                self.settings_open = false;
-            };
-        }
+        {
+            self.settings_open = false;
+        };
     }
 }
 
-impl Default for FriendNotifierApp {
+impl Default for FriendsNotifierApp {
     fn default() -> Self {
-        let (c_sx, _) = channel::<ClientMessage>();
-        let (_, g_rx) = channel::<GuiMessage>();
-        let (s_sx, _) = channel::<PlaySound>();
+        let (g_sx, g_rx) = channel::<GuiMessage>();
+        let (s_sx, _) = channel::<SoundMessage>();
         Self {
             friends: vec![Friend::default()],
-            c_sx,
+            g_sx,
             g_rx,
             s_sx,
             client_status: false,
             settings_open: false,
+            native_notification: false,
+            volume: 100,
         }
     }
 }
@@ -388,7 +428,7 @@ impl Default for Friend {
             timer_id: Uuid::new_v4(),
             enabled: false,
             name: "".to_string(),
-            sound: (ASSET_SOUNDS[0].0.to_string(), ASSET_SOUNDS[0].1.to_string()),
+            sound: (consts::ASSET_SOUNDS[0].0.to_string(), consts::ASSET_SOUNDS[0].1.to_string()),
             notify_timer: 5,
             is_repeat: false,
             status: FriendStatus::default(),
@@ -396,6 +436,9 @@ impl Default for Friend {
     }
 }
 
+// Friend uniqueness depends on generated uuid, otherwise two different added friends
+// could be the same if their name was equal, and during logical comparison
+// only the first one would be used for such operations
 impl PartialEq for Friend {
     fn eq(&self, other: &Self) -> bool {
         self.uuid == other.uuid
