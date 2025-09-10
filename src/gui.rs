@@ -203,8 +203,8 @@ impl App for FriendsNotifierApp {
                                 .timeout(Duration::from_millis(5000))
                                 .body(&format!("{} is Online!", fr.name))
                                 .auto_icon()
-                                .show()
-                                .unwrap_err();
+                                .finalize()
+                                .show();
                         };
                     }
                 };

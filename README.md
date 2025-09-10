@@ -14,6 +14,8 @@ You can see their status from the application, receive sound notifications and a
   - Assign a different sound for each friend
   - Enable repeated reminders every X seconds
 
+<br />
+
 <p align="center">
     <img src="images/Preview1.png" />
 </p>
