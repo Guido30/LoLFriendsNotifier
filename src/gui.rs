@@ -46,10 +46,11 @@ pub struct Friend {
     pub status: FriendStatus,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum FriendStatus {
     Online,
     Mobile,
+    Away,
     #[default]
     Offline,
 }
@@ -59,7 +60,7 @@ pub enum GuiMessage {
     ClientStatus(bool),
     FriendStatus(Vec<(FriendRiotId, FriendAvailability)>),
     SpawnTimer(Friend),
-    TimerTriggered(Friend),
+    Notify(Friend),
     #[default]
     NoMessage,
 }
@@ -89,6 +90,7 @@ pub struct FriendsNotifierApp {
     pub settings_open: bool,
     pub native_notification: bool,
     pub volume: u8,
+    pub away_as_offline: bool,
 }
 
 impl FriendsNotifierApp {
@@ -151,21 +153,48 @@ impl App for FriendsNotifierApp {
         // Handle messages to mutate state before initializing widgets
         let msg = self.g_rx.try_recv().unwrap_or_default();
         match msg {
-            // Set all friends statuses everytime the background thread retrieves them from the lcu api
-            // so that the gui can display them accordingly
+            // Update gui friend status, and send notification if is found in an active state
             GuiMessage::FriendStatus(fr) => {
                 for f in self.friends.iter_mut() {
-                    match fr.iter().find(|_f| _f.0 == f.name.to_lowercase()) {
-                        Some(_f) => {
-                            f.status = _f.1.clone().into();
-                        }
-                        None => f.status = FriendStatus::Offline,
-                    }
-                }
+                    if let Some((_, new_status_raw)) = fr.iter().find(|_f| _f.0 == f.name.to_lowercase()) {
+                        let new_status: FriendStatus = new_status_raw.clone().into();
+                        let old_status = f.status.clone(); // Clone old status for comparison before mutation.
 
-                for f in fr {
-                    if let Some(friend) = self.friends.iter_mut().find(|_f| _f.name == f.0) {
-                        friend.status = f.1.clone().into();
+                        // Determine if a notification should be sent based on several conditions.
+                        let should_notify = {
+                            // Check if the status change is significant to send a notification.
+                            // By default, "active" state is Online or Away.
+                            // If away_as_offline is on, then only Online is "active".
+                            let was_active = if self.away_as_offline {
+                                matches!(old_status, FriendStatus::Online)
+                            } else {
+                                matches!(old_status, FriendStatus::Online | FriendStatus::Away)
+                            };
+
+                            let is_now_active = if self.away_as_offline {
+                                matches!(new_status, FriendStatus::Online)
+                            } else {
+                                matches!(new_status, FriendStatus::Online | FriendStatus::Away)
+                            };
+
+                            // A meaningful change happens when the friend transitions between active and non-active states.
+                            let is_meaningful_change = was_active != is_now_active;
+
+                            // If away_as_offline is on, we explicitly ignore notifications for a friend
+                            // becoming "Away", even if it's a meaningful change (e.g., Online -> Away).
+                            let is_away_and_ignored = self.away_as_offline && matches!(new_status, FriendStatus::Away);
+
+                            f.enabled && is_meaningful_change && !is_away_and_ignored
+                        };
+
+                        // Always update the friend's status to reflect the latest data.
+                        f.status = new_status;
+                        if should_notify {
+                            let _ = self.g_sx.send(GuiMessage::Notify(f.clone()));
+                        }
+                    } else {
+                        // For friends not found in the API response set them to Offline.
+                        f.status = FriendStatus::Offline;
                     }
                 }
             }
@@ -177,11 +206,11 @@ impl App for FriendsNotifierApp {
                 let g_sx = self.g_sx.clone();
                 thread::spawn(move || {
                     thread::sleep(Duration::from_secs(f.notify_timer as u64));
-                    let _ = g_sx.send(GuiMessage::TimerTriggered(f));
+                    let _ = g_sx.send(GuiMessage::Notify(f));
                 });
             }
             // When timer is triggered we check if conditions changed while waiting for the timer
-            GuiMessage::TimerTriggered(fr) => {
+            GuiMessage::Notify(fr) => {
                 if let Some(friend) = self.friends.iter().find(|f| f == &&fr) {
                     // Friend must be online and timer_id matches
                     // Timer_id mismatch happens because the background thread that triggers after
@@ -189,23 +218,28 @@ impl App for FriendsNotifierApp {
                     // spawn it or a different one for the same friend (each time a friend is enabled it will spawn a timer)
                     // and since timer_id is regenerated everytime a friend is enabled we make sure it was the
                     // last call to spawn it by comparing the timer id
-                    if matches!(friend.status, FriendStatus::Online) && friend.timer_id == fr.timer_id {
-                        // Handle repeating the notification
-                        if friend.is_repeat {
-                            let _ = self.g_sx.send(GuiMessage::SpawnTimer(friend.clone()));
+                    match (&friend.status, self.away_as_offline) {
+                        (FriendStatus::Online, _) | (FriendStatus::Away, false) => {
+                            if friend.timer_id == fr.timer_id {
+                                // Handle repeating the notification
+                                if friend.is_repeat {
+                                    let _ = self.g_sx.send(GuiMessage::SpawnTimer(friend.clone()));
+                                }
+                                // Now that conditions are met, play the sound associated with this Friend
+                                let _ = self.s_sx.send(SoundMessage::PlaySound(friend.sound.1.clone()));
+                                // Send the windows notification if enabled
+                                if self.native_notification {
+                                    let _ = Notification::new()
+                                        .appname("Friends Notifier")
+                                        .timeout(Duration::from_millis(5000))
+                                        .body(&format!("{} is Online!", fr.name))
+                                        .auto_icon()
+                                        .finalize()
+                                        .show();
+                                };
+                            }
                         }
-                        // Now that conditions are met, play the sound associated with this Friend
-                        let _ = self.s_sx.send(SoundMessage::PlaySound(friend.sound.1.clone()));
-                        // Send the windows notification if enabled
-                        if self.native_notification {
-                            let _ = Notification::new()
-                                .appname("Friends Notifier")
-                                .timeout(Duration::from_millis(5000))
-                                .body(&format!("{} is Online!", fr.name))
-                                .auto_icon()
-                                .finalize()
-                                .show();
-                        };
+                        _ => {}
                     }
                 };
             }
@@ -300,7 +334,7 @@ impl App for FriendsNotifierApp {
                                         friend.enabled = !friend.enabled;
                                         friend.timer_id = Uuid::new_v4();
                                         if friend.enabled {
-                                            let _ = self.g_sx.send(GuiMessage::SpawnTimer(friend.clone()));
+                                            let _ = self.g_sx.send(GuiMessage::Notify(friend.clone()));
                                         };
                                     };
                                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -309,6 +343,7 @@ impl App for FriendsNotifierApp {
                                         let friend_status_img = match friend.status {
                                             FriendStatus::Online => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_GREEN),
                                             FriendStatus::Mobile => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_GREY),
+                                            FriendStatus::Away => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_YELLOW),
                                             FriendStatus::Offline => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_RED),
                                         };
                                         ui.add(friend_status_img);
@@ -395,6 +430,13 @@ impl App for FriendsNotifierApp {
                                 ui.checkbox(&mut self.native_notification, "");
                             })
                         });
+                        ui.horizontal(|ui| {
+                            ui.label("Treat 'Away' as Offline");
+
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                ui.checkbox(&mut self.away_as_offline, "");
+                            })
+                        });
                     });
                 })
                 .should_close()
@@ -417,6 +459,7 @@ impl Default for FriendsNotifierApp {
             settings_open: false,
             native_notification: false,
             volume: 100,
+            away_as_offline: false,
         }
     }
 }
@@ -449,8 +492,9 @@ impl From<String> for FriendStatus {
     fn from(value: String) -> Self {
         let value = &*value;
         match value {
-            "dnd" | "chat" | "away" => FriendStatus::Online,
+            "dnd" | "chat" => FriendStatus::Online,
             "mobile" => FriendStatus::Mobile,
+            "away" => FriendStatus::Away,
             _ => FriendStatus::Offline,
         }
     }

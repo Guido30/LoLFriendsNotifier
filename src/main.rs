@@ -9,6 +9,12 @@ mod consts;
 mod gui;
 mod threads;
 
+// TODO when repeat is turned on during an active timer, if the repeat was turned off it wont recreate one
+// TODO When the client is closed, the friend statuses remain online if they were online
+// TODO Implement Away and maybe mobile status handling, also away as offline option
+// TODO implement logging usin the tracing crate
+// TODO find and fix bug that after sometime that the app is running it stops sending notifications, threads die? or what? find out
+
 fn main() -> eframe::Result {
     // We define a single native window
     let native_options = NativeOptions {

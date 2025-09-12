@@ -4,7 +4,7 @@ const _APP_COLOR_STATUS_UNAVAILABLE: Color32 = Color32::from_rgb(70, 70, 70); //
 
 // Compiled assets
 pub const ASSET_ICON: &[u8] = include_bytes!("icons/icon.png");
-pub const ASSET_ICON_GEAR: ImageSource = egui::include_image!("icons/bootstrap_gear.svg");
+pub const ASSET_ICON_GEAR: ImageSource = egui::include_image!("icons/bootstrap_gear_fill.svg");
 pub const ASSET_ICON_PLUS: ImageSource = egui::include_image!("icons/bootstrap_plus.svg");
 pub const ASSET_ICON_DASH: ImageSource = egui::include_image!("icons/bootstrap_dash.svg");
 pub const ASSET_ICON_CHECK: ImageSource = egui::include_image!("icons/bootstrap_check.svg");
@@ -12,6 +12,7 @@ pub const ASSET_ICON_REPEAT: ImageSource = egui::include_image!("icons/bootstrap
 pub const ASSET_ICON_CIRCLE_FILLED_GREY: ImageSource = egui::include_image!("icons/vscode-codicon_circle-filled-grey.svg");
 pub const ASSET_ICON_CIRCLE_FILLED_RED: ImageSource = egui::include_image!("icons/vscode-codicon_circle-filled-red.svg");
 pub const ASSET_ICON_CIRCLE_FILLED_GREEN: ImageSource = egui::include_image!("icons/vscode-codicon_circle-filled-green.svg");
+pub const ASSET_ICON_CIRCLE_FILLED_YELLOW: ImageSource = egui::include_image!("icons/vscode-codicon_circle-filled-yellow.svg");
 
 // Sound files are loaded at runtime once to avoid increasing binary size
 // they must be in the defined paths at runtime otherwise the sound thread will error
