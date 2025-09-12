@@ -18,17 +18,18 @@ pub fn league_client(g_sx: Sender<GuiMessage>, client: Option<Arc<Mutex<LeagueCl
         loop {
             if let Ok(mut c) = client.try_lock() {
                 let is_connected = c.status() || c.retry();
-
                 let _ = g_sx.send(GuiMessage::ClientStatus(is_connected));
 
                 // Retrieves friends from the API and maps them into a Vec<(String, String)>
                 // then sends them on the client channel
-                if let Ok(f) = c.get_lol_chat_v1_friends() {
-                    let f: Vec<(String, String)> = f
-                        .into_iter()
-                        .map(|_f| ((_f.game_name + "#" + &_f.game_tag).to_lowercase(), _f.availability.to_lowercase()))
-                        .collect();
-                    let _ = g_sx.send(GuiMessage::FriendStatus(f));
+                if is_connected {
+                    if let Ok(f) = c.get_lol_chat_v1_friends() {
+                        let f: Vec<(String, String)> = f
+                            .into_iter()
+                            .map(|_f| ((_f.game_name + "#" + &_f.game_tag).to_lowercase(), _f.availability.to_lowercase()))
+                            .collect();
+                        let _ = g_sx.send(GuiMessage::FriendStatus(f));
+                    }
                 }
             }
             thread::sleep(Duration::from_secs(3));
@@ -60,7 +61,7 @@ pub fn sound_handler(s_rx: Receiver<SoundMessage>) {
                         }
                     }
                     SoundMessage::SetVolume(v) => {
-                        sink.set_volume(v as f32);
+                        sink.set_volume(v as f32 / 100.0);
                     }
                     _ => {}
                 }

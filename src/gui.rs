@@ -6,7 +6,7 @@ use eframe::{
         FontId, Frame, Id, Image, Layout, Margin, Modal, RichText, ScrollArea, Slider, TextEdit,
         TextStyle::*,
         Vec2,
-        containers::{CentralPanel, TopBottomPanel},
+        containers::{CentralPanel, Tooltip, TopBottomPanel},
     },
 };
 use lolclientapi_rs::blocking::LeagueClient;
@@ -199,6 +199,13 @@ impl App for FriendsNotifierApp {
                 }
             }
             GuiMessage::ClientStatus(status) => {
+                // Set all friends statuses to Offline, this is needed in case the client is closed after retrieving some statuses
+                if !status {
+                    for f in self.friends.iter_mut() {
+                        f.status = FriendStatus::Offline
+                    }
+                }
+
                 self.client_status = status;
             }
             // Spawn a timer thread when a friend is enabled, at timeout try to send a notification
@@ -346,7 +353,14 @@ impl App for FriendsNotifierApp {
                                             FriendStatus::Away => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_YELLOW),
                                             FriendStatus::Offline => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_RED),
                                         };
-                                        ui.add(friend_status_img);
+                                        let friend_status_img_res = ui.add(friend_status_img);
+                                        Tooltip::for_enabled(&friend_status_img_res).show(|ui| match friend.status {
+                                            FriendStatus::Online => ui.label("Online"),
+                                            FriendStatus::Mobile => ui.label("Mobile"),
+                                            FriendStatus::Away => ui.label("Away"),
+                                            FriendStatus::Offline => ui.label("Offline"),
+                                        });
+
                                         ui.separator();
                                         // Repeat notification button and value widgets
                                         ui.add_enabled(
@@ -355,6 +369,10 @@ impl App for FriendsNotifierApp {
                                         );
                                         if ui.add(Button::image(consts::ASSET_ICON_REPEAT).selected(friend.is_repeat)).clicked() {
                                             friend.is_repeat = !friend.is_repeat;
+                                            if friend.is_repeat {
+                                                friend.timer_id = Uuid::new_v4();
+                                                let _ = self.g_sx.send(GuiMessage::Notify(friend.clone()));
+                                            }
                                         };
                                         ui.separator();
                                         // Friend specific sound, combobox selector widget
