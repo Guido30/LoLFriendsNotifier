@@ -12,6 +12,7 @@ pub const ASSET_ICON_REPEAT: ImageSource = egui::include_image!("icons/bootstrap
 pub const ASSET_ICON_CIRCLE_FILLED_GREY: ImageSource = egui::include_image!("icons/vscode-codicon_circle-filled-grey.svg");
 pub const ASSET_ICON_CIRCLE_FILLED_RED: ImageSource = egui::include_image!("icons/vscode-codicon_circle-filled-red.svg");
 pub const ASSET_ICON_CIRCLE_FILLED_GREEN: ImageSource = egui::include_image!("icons/vscode-codicon_circle-filled-green.svg");
+pub const ASSET_ICON_CIRCLE_FILLED_CYAN: ImageSource = egui::include_image!("icons/vscode-codicon_circle-filled-cyan.svg");
 pub const ASSET_ICON_CIRCLE_FILLED_YELLOW: ImageSource = egui::include_image!("icons/vscode-codicon_circle-filled-yellow.svg");
 
 // Sound files are loaded at runtime once to avoid increasing binary size

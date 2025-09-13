@@ -1,6 +1,6 @@
 [package]
 name = "lolfriendsnotifier"
-version = "1.0.3"
+version = "1.0.4"
 authors = ["Guido30"]
 edition = "2024"
 license = "MIT"

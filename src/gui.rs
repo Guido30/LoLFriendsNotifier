@@ -1,12 +1,13 @@
 use eframe::{
     App, CreationContext,
     egui::{
-        self, Align, Button, ComboBox, CursorIcon, DragValue,
+        self, Align, Button, Color32, ComboBox, CursorIcon, DragValue,
         FontFamily::Proportional,
         FontId, Frame, Id, Image, Layout, Margin, Modal, RichText, ScrollArea, Slider, TextEdit,
         TextStyle::*,
         Vec2,
         containers::{CentralPanel, Tooltip, TopBottomPanel},
+        text::{LayoutJob, TextFormat},
     },
 };
 use lolclientapi_rs::blocking::LeagueClient;
@@ -49,6 +50,7 @@ pub struct Friend {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub enum FriendStatus {
     Online,
+    InGame,
     Mobile,
     Away,
     #[default]
@@ -90,7 +92,8 @@ pub struct FriendsNotifierApp {
     pub settings_open: bool,
     pub native_notification: bool,
     pub volume: u8,
-    pub away_as_offline: bool,
+    pub notify_away_status: bool,
+    pub notify_in_game_status: bool,
 }
 
 impl FriendsNotifierApp {
@@ -109,6 +112,7 @@ impl FriendsNotifierApp {
         .into();
         cc.egui_ctx.all_styles_mut(move |style| {
             style.text_styles = text_styles.clone();
+            style.interaction.selectable_labels = false;
         });
 
         let mut app: FriendsNotifierApp;
@@ -162,29 +166,26 @@ impl App for FriendsNotifierApp {
 
                         // Determine if a notification should be sent based on several conditions.
                         let should_notify = {
-                            // Check if the status change is significant to send a notification.
-                            // By default, "active" state is Online or Away.
-                            // If away_as_offline is on, then only Online is "active".
-                            let was_active = if self.away_as_offline {
-                                matches!(old_status, FriendStatus::Online)
-                            } else {
-                                matches!(old_status, FriendStatus::Online | FriendStatus::Away)
+                            // Helper closure to determine if a status is considered "active" based on settings.
+                            // This now includes checking for the new `notify_in_game_status` flag.
+                            let is_status_active = |status: &FriendStatus| -> bool {
+                                matches!(status, FriendStatus::Online)
+                                    || (self.notify_away_status && matches!(status, FriendStatus::Away))
+                                    || (self.notify_in_game_status && matches!(status, FriendStatus::InGame))
                             };
 
-                            let is_now_active = if self.away_as_offline {
-                                matches!(new_status, FriendStatus::Online)
-                            } else {
-                                matches!(new_status, FriendStatus::Online | FriendStatus::Away)
-                            };
+                            let was_active = is_status_active(&old_status);
+                            let is_now_active = is_status_active(&new_status);
 
                             // A meaningful change happens when the friend transitions between active and non-active states.
                             let is_meaningful_change = was_active != is_now_active;
 
-                            // If away_as_offline is on, we explicitly ignore notifications for a friend
-                            // becoming "Away", even if it's a meaningful change (e.g., Online -> Away).
-                            let is_away_and_ignored = self.away_as_offline && matches!(new_status, FriendStatus::Away);
+                            // Explicitly ignore notifications for becoming "Away" or "InGame" if their respective settings are off,
+                            // even if it's considered a meaningful change (e.g., Online -> Away).
+                            let is_ignored_transition = (!self.notify_away_status && matches!(new_status, FriendStatus::Away))
+                                || (!self.notify_in_game_status && matches!(new_status, FriendStatus::InGame));
 
-                            f.enabled && is_meaningful_change && !is_away_and_ignored
+                            f.enabled && is_meaningful_change && !is_ignored_transition
                         };
 
                         // Always update the friend's status to reflect the latest data.
@@ -225,8 +226,8 @@ impl App for FriendsNotifierApp {
                     // spawn it or a different one for the same friend (each time a friend is enabled it will spawn a timer)
                     // and since timer_id is regenerated everytime a friend is enabled we make sure it was the
                     // last call to spawn it by comparing the timer id
-                    match (&friend.status, self.away_as_offline) {
-                        (FriendStatus::Online, _) | (FriendStatus::Away, false) => {
+                    match (&friend.status, self.notify_away_status, self.notify_in_game_status) {
+                        (FriendStatus::Online, _, _) | (FriendStatus::Away, true, _) | (FriendStatus::InGame, _, true) => {
                             if friend.timer_id == fr.timer_id {
                                 // Handle repeating the notification
                                 if friend.is_repeat {
@@ -349,6 +350,7 @@ impl App for FriendsNotifierApp {
                                         // Friend status icon widget
                                         let friend_status_img = match friend.status {
                                             FriendStatus::Online => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_GREEN),
+                                            FriendStatus::InGame => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_CYAN),
                                             FriendStatus::Mobile => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_GREY),
                                             FriendStatus::Away => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_YELLOW),
                                             FriendStatus::Offline => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_RED),
@@ -356,6 +358,7 @@ impl App for FriendsNotifierApp {
                                         let friend_status_img_res = ui.add(friend_status_img);
                                         Tooltip::for_enabled(&friend_status_img_res).show(|ui| match friend.status {
                                             FriendStatus::Online => ui.label("Online"),
+                                            FriendStatus::InGame => ui.label("In Game"),
                                             FriendStatus::Mobile => ui.label("Mobile"),
                                             FriendStatus::Away => ui.label("Away"),
                                             FriendStatus::Offline => ui.label("Offline"),
@@ -449,10 +452,69 @@ impl App for FriendsNotifierApp {
                             })
                         });
                         ui.horizontal(|ui| {
-                            ui.label("Treat 'Away' as Offline");
+                            let mut text = LayoutJob::default();
+                            text.append(
+                                "Notify ",
+                                0.0,
+                                TextFormat {
+                                    font_id: FontId { size: 10.0, ..Default::default() },
+                                    ..Default::default()
+                                },
+                            );
+                            text.append(
+                                "In Game",
+                                0.0,
+                                TextFormat {
+                                    font_id: FontId { size: 10.0, ..Default::default() },
+                                    color: Color32::from_rgb(10, 203, 230),
+                                    ..Default::default()
+                                },
+                            );
+                            text.append(
+                                " status",
+                                0.0,
+                                TextFormat {
+                                    font_id: FontId { size: 10.0, ..Default::default() },
+                                    ..Default::default()
+                                },
+                            );
+                            ui.label(text);
 
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                ui.checkbox(&mut self.away_as_offline, "");
+                                ui.checkbox(&mut self.notify_in_game_status, "");
+                            })
+                        });
+                        ui.horizontal(|ui| {
+                            let mut text = LayoutJob::default();
+                            text.append(
+                                "Notify ",
+                                0.0,
+                                TextFormat {
+                                    font_id: FontId { size: 10.0, ..Default::default() },
+                                    ..Default::default()
+                                },
+                            );
+                            text.append(
+                                "Away",
+                                0.0,
+                                TextFormat {
+                                    font_id: FontId { size: 10.0, ..Default::default() },
+                                    color: Color32::from_rgb(255, 130, 0),
+                                    ..Default::default()
+                                },
+                            );
+                            text.append(
+                                " status",
+                                0.0,
+                                TextFormat {
+                                    font_id: FontId { size: 10.0, ..Default::default() },
+                                    ..Default::default()
+                                },
+                            );
+                            ui.label(text);
+
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                ui.checkbox(&mut self.notify_away_status, "");
                             })
                         });
                     });
@@ -477,7 +539,8 @@ impl Default for FriendsNotifierApp {
             settings_open: false,
             native_notification: false,
             volume: 100,
-            away_as_offline: false,
+            notify_away_status: false,
+            notify_in_game_status: true,
         }
     }
 }
@@ -510,7 +573,8 @@ impl From<String> for FriendStatus {
     fn from(value: String) -> Self {
         let value = &*value;
         match value {
-            "dnd" | "chat" => FriendStatus::Online,
+            "chat" => FriendStatus::Online,
+            "dnd" => FriendStatus::InGame,
             "mobile" => FriendStatus::Mobile,
             "away" => FriendStatus::Away,
             _ => FriendStatus::Offline,
