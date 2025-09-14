@@ -3,9 +3,9 @@ use eframe::{
     egui::{
         self, Align, Button, Color32, ComboBox, CursorIcon, DragValue,
         FontFamily::Proportional,
-        FontId, Frame, Id, Image, Layout, Margin, Modal, RichText, ScrollArea, Slider, TextEdit,
+        FontId, Frame, Id, Image, Layout, Margin, Modal, RichText, ScrollArea, SelectableLabel, Slider, TextEdit,
         TextStyle::*,
-        Vec2,
+        Theme, ThemePreference, Vec2,
         containers::{CentralPanel, Tooltip, TopBottomPanel},
         text::{LayoutJob, TextFormat},
     },
@@ -89,11 +89,12 @@ pub struct FriendsNotifierApp {
     #[serde(skip)]
     client_status: bool,
     #[serde(skip)]
-    pub settings_open: bool,
-    pub native_notification: bool,
-    pub volume: u8,
-    pub notify_away_status: bool,
-    pub notify_in_game_status: bool,
+    settings_open: bool,
+    native_notification: bool,
+    volume: u8,
+    notify_away_status: bool,
+    notify_in_game_status: bool,
+    dark_mode: bool,
 }
 
 impl FriendsNotifierApp {
@@ -106,7 +107,7 @@ impl FriendsNotifierApp {
             (Heading, FontId::new(18.0, Proportional)),
             (Body, FontId::new(10.0, Proportional)),
             (Monospace, FontId::new(10.0, Proportional)),
-            (Button, FontId::new(12.0, Proportional)),
+            (Button, FontId::new(10.0, Proportional)),
             (Small, FontId::new(8.0, Proportional)),
         ]
         .into();
@@ -122,6 +123,11 @@ impl FriendsNotifierApp {
         } else {
             app = FriendsNotifierApp::default();
         }
+
+        app.dark_mode = match cc.egui_ctx.theme() {
+            Theme::Dark => true,
+            Theme::Light => false,
+        };
 
         let client = Arc::new(Mutex::new(LeagueClient::new()));
         let (g_sx, g_rx) = channel::<GuiMessage>();
@@ -254,12 +260,32 @@ impl App for FriendsNotifierApp {
             _ => {}
         }
 
+        // Apply tint to loaded images to match theme
+        let icon_gear: Image;
+        let icon_dash: Image;
+        let icon_plus: Image;
+        let icon_check: Image;
+        let icon_repeat: Image;
+        if let Theme::Light = ctx.theme() {
+            icon_gear = Image::new(consts::ASSET_ICON_GEAR).tint(Color32::DARK_GRAY);
+            icon_dash = Image::new(consts::ASSET_ICON_DASH).tint(Color32::DARK_GRAY);
+            icon_plus = Image::new(consts::ASSET_ICON_PLUS).tint(Color32::DARK_GRAY);
+            icon_check = Image::new(consts::ASSET_ICON_CHECK).tint(Color32::DARK_GRAY);
+            icon_repeat = Image::new(consts::ASSET_ICON_REPEAT).max_height(14.0).tint(Color32::DARK_GRAY);
+        } else {
+            icon_gear = Image::new(consts::ASSET_ICON_GEAR);
+            icon_dash = Image::new(consts::ASSET_ICON_DASH);
+            icon_plus = Image::new(consts::ASSET_ICON_PLUS);
+            icon_check = Image::new(consts::ASSET_ICON_CHECK);
+            icon_repeat = Image::new(consts::ASSET_ICON_REPEAT).max_height(14.0);
+        }
+
         // Start defining the gui and its interactions with the state
         // Footer of this app, contains settings btn and client status widgets
         TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             Frame::new().inner_margin(Vec2::new(0.0, 5.0)).show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    let settings_btn = Button::image_and_text(Image::new(consts::ASSET_ICON_GEAR), "Settings");
+                    let settings_btn = Button::image_and_text(icon_gear, "Settings");
                     if ui.add(settings_btn).clicked() {
                         self.settings_open = !self.settings_open;
                     };
@@ -269,7 +295,7 @@ impl App for FriendsNotifierApp {
                             true => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_GREEN),
                             false => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_RED),
                         });
-                        ui.label(RichText::from("Client").italics());
+                        ui.label(RichText::from("Client").italics().size(11.0));
                     })
                 });
             });
@@ -320,10 +346,10 @@ impl App for FriendsNotifierApp {
                                 .show(ui, |ui| {
                                     // Add/Remove rows buttons are added
                                     ui.style_mut().spacing.item_spacing = [5.0, 0.0].into();
-                                    if ui.add(Button::image(Image::new(consts::ASSET_ICON_DASH))).clicked() && self.friends.len() > ALLOWED_MIN_FRIENDS {
+                                    if ui.add(Button::image(icon_dash)).clicked() && self.friends.len() > ALLOWED_MIN_FRIENDS {
                                         let _f = self.friends.pop().unwrap();
                                     };
-                                    if ui.add(Button::image(Image::new(consts::ASSET_ICON_PLUS))).clicked() && self.friends.len() < ALLOWED_MAX_FRIENDS {
+                                    if ui.add(Button::image(icon_plus)).clicked() && self.friends.len() < ALLOWED_MAX_FRIENDS {
                                         let _f = Friend::default();
                                         self.friends.push(_f.clone());
                                     };
@@ -338,7 +364,7 @@ impl App for FriendsNotifierApp {
                                 ui.horizontal(|ui| {
                                     ui.style_mut().spacing.item_spacing = [2.0, 0.0].into();
                                     // Friend notification enabling button widget
-                                    if ui.add(Button::image(consts::ASSET_ICON_CHECK).selected(friend.enabled)).clicked() {
+                                    if ui.add(Button::selectable(friend.enabled, icon_check.clone()).frame_when_inactive(true)).clicked() {
                                         friend.enabled = !friend.enabled;
                                         friend.timer_id = Uuid::new_v4();
                                         if friend.enabled {
@@ -370,7 +396,7 @@ impl App for FriendsNotifierApp {
                                             !friend.enabled,
                                             DragValue::new(&mut friend.notify_timer).range(5..=100).suffix("s").update_while_editing(false),
                                         );
-                                        if ui.add(Button::image(consts::ASSET_ICON_REPEAT).selected(friend.is_repeat)).clicked() {
+                                        if ui.add(Button::selectable(friend.is_repeat, icon_repeat.clone()).frame_when_inactive(true)).clicked() {
                                             friend.is_repeat = !friend.is_repeat;
                                             if friend.is_repeat {
                                                 friend.timer_id = Uuid::new_v4();
@@ -432,92 +458,129 @@ impl App for FriendsNotifierApp {
                     });
                     ui.separator();
 
-                    Frame::new().inner_margin(Vec2::new(10.0, 10.0)).show(ui, |ui| {
-                        ui.spacing_mut().item_spacing = [0.0, 1.0].into();
-                        ui.horizontal(|ui| {
-                            ui.label("Volume").on_hover_cursor(CursorIcon::Default);
+                    Frame::new()
+                        .inner_margin(Margin {
+                            left: 10,
+                            right: 10,
+                            top: 6,
+                            bottom: 2,
+                        })
+                        .show(ui, |ui| {
+                            ui.spacing_mut().item_spacing = [0.0, 1.0].into();
+                            ui.horizontal(|ui| {
+                                ui.style_mut().spacing.button_padding = [6.0, 0.0].into();
+                                ui.style_mut().spacing.item_spacing = [4.0, 0.0].into();
+                                ui.label("Theme");
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if ui.selectable_label(self.dark_mode, "Dark").clicked() {
+                                        self.dark_mode = true;
+                                        ctx.set_theme(Theme::Dark);
+                                    };
+                                    if ui.selectable_label(!self.dark_mode, "Light").clicked() {
+                                        self.dark_mode = false;
+                                        ctx.set_theme(Theme::Light);
+                                    };
+                                });
+                            });
+                            ui.add_space(3.0);
+                            ui.horizontal(|ui| {
+                                ui.label("Volume").on_hover_cursor(CursorIcon::Default);
 
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                if ui.add_sized(ui.available_size(), Slider::new(&mut self.volume, 0..=100).show_value(false)).drag_stopped() {
-                                    let _ = self.s_sx.send(SoundMessage::SetVolume(self.volume));
-                                };
-                            })
-                        });
-                        ui.separator();
-                        ui.horizontal(|ui| {
-                            ui.label("Windows Notification");
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if ui
+                                        .add_sized(
+                                            ui.available_size(),
+                                            Slider::new(&mut self.volume, 0..=100)
+                                                .handle_shape(egui::style::HandleShape::Rect { aspect_ratio: 1.2 })
+                                                .show_value(false),
+                                        )
+                                        .drag_stopped()
+                                    {
+                                        let _ = self.s_sx.send(SoundMessage::SetVolume(self.volume));
+                                    };
+                                })
+                            });
+                            ui.separator();
+                            ui.horizontal(|ui| {
+                                ui.label("Windows Notification");
 
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                ui.checkbox(&mut self.native_notification, "");
-                            })
-                        });
-                        ui.horizontal(|ui| {
-                            let mut text = LayoutJob::default();
-                            text.append(
-                                "Notify ",
-                                0.0,
-                                TextFormat {
-                                    font_id: FontId { size: 10.0, ..Default::default() },
-                                    ..Default::default()
-                                },
-                            );
-                            text.append(
-                                "In Game",
-                                0.0,
-                                TextFormat {
-                                    font_id: FontId { size: 10.0, ..Default::default() },
-                                    color: Color32::from_rgb(10, 203, 230),
-                                    ..Default::default()
-                                },
-                            );
-                            text.append(
-                                " status",
-                                0.0,
-                                TextFormat {
-                                    font_id: FontId { size: 10.0, ..Default::default() },
-                                    ..Default::default()
-                                },
-                            );
-                            ui.label(text);
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    ui.checkbox(&mut self.native_notification, "");
+                                })
+                            });
+                            ui.horizontal(|ui| {
+                                let mut text = LayoutJob::default();
+                                text.append(
+                                    "Notify ",
+                                    0.0,
+                                    TextFormat {
+                                        font_id: FontId { size: 10.0, ..Default::default() },
+                                        color: ctx.style().visuals.text_color(),
+                                        ..Default::default()
+                                    },
+                                );
+                                text.append(
+                                    "In Game",
+                                    0.0,
+                                    TextFormat {
+                                        font_id: FontId { size: 10.0, ..Default::default() },
+                                        color: Color32::from_rgb(10, 203, 230),
+                                        ..Default::default()
+                                    },
+                                );
+                                text.append(
+                                    " status",
+                                    0.0,
+                                    TextFormat {
+                                        font_id: FontId { size: 10.0, ..Default::default() },
+                                        color: ctx.style().visuals.text_color(),
+                                        ..Default::default()
+                                    },
+                                );
+                                ui.label(text);
 
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                ui.checkbox(&mut self.notify_in_game_status, "");
-                            })
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    ui.checkbox(&mut self.notify_in_game_status, "");
+                                })
+                            });
+                            ui.horizontal(|ui| {
+                                let mut text = LayoutJob::default();
+                                text.append(
+                                    "Notify ",
+                                    0.0,
+                                    TextFormat {
+                                        font_id: FontId { size: 10.0, ..Default::default() },
+                                        color: ctx.style().visuals.text_color(),
+                                        ..Default::default()
+                                    },
+                                );
+                                text.append(
+                                    "Away",
+                                    0.0,
+                                    TextFormat {
+                                        font_id: FontId { size: 10.0, ..Default::default() },
+                                        color: Color32::from_rgb(255, 130, 0),
+                                        ..Default::default()
+                                    },
+                                );
+                                text.append(
+                                    " status",
+                                    0.0,
+                                    TextFormat {
+                                        font_id: FontId { size: 10.0, ..Default::default() },
+                                        color: ctx.style().visuals.text_color(),
+                                        ..Default::default()
+                                    },
+                                );
+                                ui.label(text);
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    ui.checkbox(&mut self.notify_away_status, "");
+                                })
+                            });
                         });
-                        ui.horizontal(|ui| {
-                            let mut text = LayoutJob::default();
-                            text.append(
-                                "Notify ",
-                                0.0,
-                                TextFormat {
-                                    font_id: FontId { size: 10.0, ..Default::default() },
-                                    ..Default::default()
-                                },
-                            );
-                            text.append(
-                                "Away",
-                                0.0,
-                                TextFormat {
-                                    font_id: FontId { size: 10.0, ..Default::default() },
-                                    color: Color32::from_rgb(255, 130, 0),
-                                    ..Default::default()
-                                },
-                            );
-                            text.append(
-                                " status",
-                                0.0,
-                                TextFormat {
-                                    font_id: FontId { size: 10.0, ..Default::default() },
-                                    ..Default::default()
-                                },
-                            );
-                            ui.label(text);
-
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                ui.checkbox(&mut self.notify_away_status, "");
-                            })
-                        });
-                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(RichText::from("v".to_string() + consts::APP_VERSION).size(8.0));
+                    })
                 })
                 .should_close()
         {
@@ -541,6 +604,7 @@ impl Default for FriendsNotifierApp {
             volume: 100,
             notify_away_status: false,
             notify_in_game_status: true,
+            dark_mode: true,
         }
     }
 }

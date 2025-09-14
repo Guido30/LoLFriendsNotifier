@@ -1,6 +1,6 @@
 use eframe::egui::{self, Color32, ImageSource};
 
-const _APP_COLOR_STATUS_UNAVAILABLE: Color32 = Color32::from_rgb(70, 70, 70); // TODO implement theming for this app
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // Compiled assets
 pub const ASSET_ICON: &[u8] = include_bytes!("icons/icon.png");
