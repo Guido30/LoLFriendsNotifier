@@ -26,7 +26,12 @@ pub fn league_client(g_sx: Sender<GuiMessage>, client: Option<Arc<Mutex<LeagueCl
                     if let Ok(f) = c.get_lol_chat_v1_friends() {
                         let f: Vec<(String, String)> = f
                             .into_iter()
-                            .map(|_f| ((_f.game_name + "#" + &_f.game_tag).to_lowercase(), _f.availability.to_lowercase()))
+                            .map(|_f| {
+                                (
+                                    (_f.game_name + "#" + &_f.game_tag).to_lowercase(),
+                                    _f.availability.to_lowercase(),
+                                )
+                            })
                             .collect();
                         let _ = g_sx.send(GuiMessage::FriendStatus(f));
                     }

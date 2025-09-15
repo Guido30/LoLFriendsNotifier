@@ -3,9 +3,9 @@ use eframe::{
     egui::{
         self, Align, Button, Color32, ComboBox, CursorIcon, DragValue,
         FontFamily::Proportional,
-        FontId, Frame, Id, Image, Layout, Margin, Modal, RichText, ScrollArea, SelectableLabel, Slider, TextEdit,
+        FontId, Frame, Id, Image, Layout, Margin, Modal, RichText, ScrollArea, Slider, TextEdit,
         TextStyle::*,
-        Theme, ThemePreference, Vec2,
+        Theme, Vec2,
         containers::{CentralPanel, Tooltip, TopBottomPanel},
         text::{LayoutJob, TextFormat},
     },
@@ -166,7 +166,9 @@ impl App for FriendsNotifierApp {
             // Update gui friend status, and send notification if is found in an active state
             GuiMessage::FriendStatus(fr) => {
                 for f in self.friends.iter_mut() {
-                    if let Some((_, new_status_raw)) = fr.iter().find(|_f| _f.0 == f.name.to_lowercase()) {
+                    if let Some((_, new_status_raw)) =
+                        fr.iter().find(|_f| _f.0 == f.name.to_lowercase())
+                    {
                         let new_status: FriendStatus = new_status_raw.clone().into();
                         let old_status = f.status.clone(); // Clone old status for comparison before mutation.
 
@@ -176,8 +178,10 @@ impl App for FriendsNotifierApp {
                             // This now includes checking for the new `notify_in_game_status` flag.
                             let is_status_active = |status: &FriendStatus| -> bool {
                                 matches!(status, FriendStatus::Online)
-                                    || (self.notify_away_status && matches!(status, FriendStatus::Away))
-                                    || (self.notify_in_game_status && matches!(status, FriendStatus::InGame))
+                                    || (self.notify_away_status
+                                        && matches!(status, FriendStatus::Away))
+                                    || (self.notify_in_game_status
+                                        && matches!(status, FriendStatus::InGame))
                             };
 
                             let was_active = is_status_active(&old_status);
@@ -188,8 +192,10 @@ impl App for FriendsNotifierApp {
 
                             // Explicitly ignore notifications for becoming "Away" or "InGame" if their respective settings are off,
                             // even if it's considered a meaningful change (e.g., Online -> Away).
-                            let is_ignored_transition = (!self.notify_away_status && matches!(new_status, FriendStatus::Away))
-                                || (!self.notify_in_game_status && matches!(new_status, FriendStatus::InGame));
+                            let is_ignored_transition = (!self.notify_away_status
+                                && matches!(new_status, FriendStatus::Away))
+                                || (!self.notify_in_game_status
+                                    && matches!(new_status, FriendStatus::InGame));
 
                             f.enabled && is_meaningful_change && !is_ignored_transition
                         };
@@ -232,15 +238,23 @@ impl App for FriendsNotifierApp {
                     // spawn it or a different one for the same friend (each time a friend is enabled it will spawn a timer)
                     // and since timer_id is regenerated everytime a friend is enabled we make sure it was the
                     // last call to spawn it by comparing the timer id
-                    match (&friend.status, self.notify_away_status, self.notify_in_game_status) {
-                        (FriendStatus::Online, _, _) | (FriendStatus::Away, true, _) | (FriendStatus::InGame, _, true) => {
+                    match (
+                        &friend.status,
+                        self.notify_away_status,
+                        self.notify_in_game_status,
+                    ) {
+                        (FriendStatus::Online, _, _)
+                        | (FriendStatus::Away, true, _)
+                        | (FriendStatus::InGame, _, true) => {
                             if friend.timer_id == fr.timer_id {
                                 // Handle repeating the notification
                                 if friend.is_repeat {
                                     let _ = self.g_sx.send(GuiMessage::SpawnTimer(friend.clone()));
                                 }
                                 // Now that conditions are met, play the sound associated with this Friend
-                                let _ = self.s_sx.send(SoundMessage::PlaySound(friend.sound.1.clone()));
+                                let _ = self
+                                    .s_sx
+                                    .send(SoundMessage::PlaySound(friend.sound.1.clone()));
                                 // Send the windows notification if enabled
                                 if self.native_notification {
                                     let _ = Notification::new()
@@ -271,7 +285,9 @@ impl App for FriendsNotifierApp {
             icon_dash = Image::new(consts::ASSET_ICON_DASH).tint(Color32::DARK_GRAY);
             icon_plus = Image::new(consts::ASSET_ICON_PLUS).tint(Color32::DARK_GRAY);
             icon_check = Image::new(consts::ASSET_ICON_CHECK).tint(Color32::DARK_GRAY);
-            icon_repeat = Image::new(consts::ASSET_ICON_REPEAT).max_height(14.0).tint(Color32::DARK_GRAY);
+            icon_repeat = Image::new(consts::ASSET_ICON_REPEAT)
+                .max_height(14.0)
+                .tint(Color32::DARK_GRAY);
         } else {
             icon_gear = Image::new(consts::ASSET_ICON_GEAR);
             icon_dash = Image::new(consts::ASSET_ICON_DASH);
@@ -283,22 +299,24 @@ impl App for FriendsNotifierApp {
         // Start defining the gui and its interactions with the state
         // Footer of this app, contains settings btn and client status widgets
         TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
-            Frame::new().inner_margin(Vec2::new(0.0, 5.0)).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let settings_btn = Button::image_and_text(icon_gear, "Settings");
-                    if ui.add(settings_btn).clicked() {
-                        self.settings_open = !self.settings_open;
-                    };
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.style_mut().spacing.item_spacing = [5.0, 0.0].into();
-                        ui.add(match self.client_status {
-                            true => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_GREEN),
-                            false => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_RED),
-                        });
-                        ui.label(RichText::from("Client").italics().size(11.0));
-                    })
+            Frame::new()
+                .inner_margin(Vec2::new(0.0, 5.0))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        let settings_btn = Button::image_and_text(icon_gear, "Settings");
+                        if ui.add(settings_btn).clicked() {
+                            self.settings_open = !self.settings_open;
+                        };
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            ui.style_mut().spacing.item_spacing = [5.0, 0.0].into();
+                            ui.add(match self.client_status {
+                                true => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_GREEN),
+                                false => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_RED),
+                            });
+                            ui.label(RichText::from("Client").italics().size(11.0));
+                        })
+                    });
                 });
-            });
         });
 
         // Main central layouts and widgets of the app
@@ -346,10 +364,14 @@ impl App for FriendsNotifierApp {
                                 .show(ui, |ui| {
                                     // Add/Remove rows buttons are added
                                     ui.style_mut().spacing.item_spacing = [5.0, 0.0].into();
-                                    if ui.add(Button::image(icon_dash)).clicked() && self.friends.len() > ALLOWED_MIN_FRIENDS {
+                                    if ui.add(Button::image(icon_dash)).clicked()
+                                        && self.friends.len() > ALLOWED_MIN_FRIENDS
+                                    {
                                         let _f = self.friends.pop().unwrap();
                                     };
-                                    if ui.add(Button::image(icon_plus)).clicked() && self.friends.len() < ALLOWED_MAX_FRIENDS {
+                                    if ui.add(Button::image(icon_plus)).clicked()
+                                        && self.friends.len() < ALLOWED_MAX_FRIENDS
+                                    {
                                         let _f = Friend::default();
                                         self.friends.push(_f.clone());
                                     };
@@ -364,75 +386,169 @@ impl App for FriendsNotifierApp {
                                 ui.horizontal(|ui| {
                                     ui.style_mut().spacing.item_spacing = [2.0, 0.0].into();
                                     // Friend notification enabling button widget
-                                    if ui.add(Button::selectable(friend.enabled, icon_check.clone()).frame_when_inactive(true)).clicked() {
+                                    if ui
+                                        .add(
+                                            Button::selectable(friend.enabled, icon_check.clone())
+                                                .frame_when_inactive(true),
+                                        )
+                                        .clicked()
+                                    {
                                         friend.enabled = !friend.enabled;
                                         friend.timer_id = Uuid::new_v4();
                                         if friend.enabled {
-                                            let _ = self.g_sx.send(GuiMessage::Notify(friend.clone()));
+                                            let _ =
+                                                self.g_sx.send(GuiMessage::Notify(friend.clone()));
                                         };
                                     };
                                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                         ui.style_mut().spacing.button_padding = [10.0, 0.0].into();
                                         // Friend status icon widget
                                         let friend_status_img = match friend.status {
-                                            FriendStatus::Online => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_GREEN),
-                                            FriendStatus::InGame => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_CYAN),
-                                            FriendStatus::Mobile => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_GREY),
-                                            FriendStatus::Away => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_YELLOW),
-                                            FriendStatus::Offline => Image::new(consts::ASSET_ICON_CIRCLE_FILLED_RED),
+                                            FriendStatus::Online => {
+                                                Image::new(consts::ASSET_ICON_CIRCLE_FILLED_GREEN)
+                                            }
+                                            FriendStatus::InGame => {
+                                                Image::new(consts::ASSET_ICON_CIRCLE_FILLED_CYAN)
+                                            }
+                                            FriendStatus::Mobile => {
+                                                Image::new(consts::ASSET_ICON_CIRCLE_FILLED_GREY)
+                                            }
+                                            FriendStatus::Away => {
+                                                Image::new(consts::ASSET_ICON_CIRCLE_FILLED_YELLOW)
+                                            }
+                                            FriendStatus::Offline => {
+                                                Image::new(consts::ASSET_ICON_CIRCLE_FILLED_RED)
+                                            }
                                         };
                                         let friend_status_img_res = ui.add(friend_status_img);
-                                        Tooltip::for_enabled(&friend_status_img_res).show(|ui| match friend.status {
-                                            FriendStatus::Online => ui.label("Online"),
-                                            FriendStatus::InGame => ui.label("In Game"),
-                                            FriendStatus::Mobile => ui.label("Mobile"),
-                                            FriendStatus::Away => ui.label("Away"),
-                                            FriendStatus::Offline => ui.label("Offline"),
+                                        Tooltip::for_enabled(&friend_status_img_res).show(|ui| {
+                                            match friend.status {
+                                                FriendStatus::Online => ui.label("Online"),
+                                                FriendStatus::InGame => ui.label("In Game"),
+                                                FriendStatus::Mobile => ui.label("Mobile"),
+                                                FriendStatus::Away => ui.label("Away"),
+                                                FriendStatus::Offline => ui.label("Offline"),
+                                            }
                                         });
 
                                         ui.separator();
                                         // Repeat notification button and value widgets
                                         ui.add_enabled(
                                             !friend.enabled,
-                                            DragValue::new(&mut friend.notify_timer).range(5..=100).suffix("s").update_while_editing(false),
+                                            DragValue::new(&mut friend.notify_timer)
+                                                .range(5..=100)
+                                                .suffix("s")
+                                                .update_while_editing(false),
                                         );
-                                        if ui.add(Button::selectable(friend.is_repeat, icon_repeat.clone()).frame_when_inactive(true)).clicked() {
+                                        if ui
+                                            .add(
+                                                Button::selectable(
+                                                    friend.is_repeat,
+                                                    icon_repeat.clone(),
+                                                )
+                                                .frame_when_inactive(true),
+                                            )
+                                            .clicked()
+                                        {
                                             friend.is_repeat = !friend.is_repeat;
                                             if friend.is_repeat {
                                                 friend.timer_id = Uuid::new_v4();
-                                                let _ = self.g_sx.send(GuiMessage::Notify(friend.clone()));
+                                                let _ = self
+                                                    .g_sx
+                                                    .send(GuiMessage::Notify(friend.clone()));
                                             }
                                         };
                                         ui.separator();
                                         // Friend specific sound, combobox selector widget
                                         let before = &friend.sound.0.clone();
-                                        ComboBox::from_id_salt(format!("box{i}")).selected_text(&friend.sound.0).show_ui(ui, |ui| {
-                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[0].0.to_string(), consts::ASSET_SOUNDS[0].0);
-                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[1].0.to_string(), consts::ASSET_SOUNDS[1].0);
-                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[2].0.to_string(), consts::ASSET_SOUNDS[2].0);
-                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[3].0.to_string(), consts::ASSET_SOUNDS[3].0);
-                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[4].0.to_string(), consts::ASSET_SOUNDS[4].0);
-                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[5].0.to_string(), consts::ASSET_SOUNDS[5].0);
-                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[6].0.to_string(), consts::ASSET_SOUNDS[6].0);
-                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[7].0.to_string(), consts::ASSET_SOUNDS[7].0);
-                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[8].0.to_string(), consts::ASSET_SOUNDS[8].0);
-                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[9].0.to_string(), consts::ASSET_SOUNDS[9].0);
-                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[10].0.to_string(), consts::ASSET_SOUNDS[10].0);
-                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[11].0.to_string(), consts::ASSET_SOUNDS[11].0);
-                                            ui.selectable_value(&mut friend.sound.0, consts::ASSET_SOUNDS[12].0.to_string(), consts::ASSET_SOUNDS[12].0);
-                                        });
+                                        ComboBox::from_id_salt(format!("box{i}"))
+                                            .selected_text(&friend.sound.0)
+                                            .show_ui(ui, |ui| {
+                                                ui.selectable_value(
+                                                    &mut friend.sound.0,
+                                                    consts::ASSET_SOUNDS[0].0.to_string(),
+                                                    consts::ASSET_SOUNDS[0].0,
+                                                );
+                                                ui.selectable_value(
+                                                    &mut friend.sound.0,
+                                                    consts::ASSET_SOUNDS[1].0.to_string(),
+                                                    consts::ASSET_SOUNDS[1].0,
+                                                );
+                                                ui.selectable_value(
+                                                    &mut friend.sound.0,
+                                                    consts::ASSET_SOUNDS[2].0.to_string(),
+                                                    consts::ASSET_SOUNDS[2].0,
+                                                );
+                                                ui.selectable_value(
+                                                    &mut friend.sound.0,
+                                                    consts::ASSET_SOUNDS[3].0.to_string(),
+                                                    consts::ASSET_SOUNDS[3].0,
+                                                );
+                                                ui.selectable_value(
+                                                    &mut friend.sound.0,
+                                                    consts::ASSET_SOUNDS[4].0.to_string(),
+                                                    consts::ASSET_SOUNDS[4].0,
+                                                );
+                                                ui.selectable_value(
+                                                    &mut friend.sound.0,
+                                                    consts::ASSET_SOUNDS[5].0.to_string(),
+                                                    consts::ASSET_SOUNDS[5].0,
+                                                );
+                                                ui.selectable_value(
+                                                    &mut friend.sound.0,
+                                                    consts::ASSET_SOUNDS[6].0.to_string(),
+                                                    consts::ASSET_SOUNDS[6].0,
+                                                );
+                                                ui.selectable_value(
+                                                    &mut friend.sound.0,
+                                                    consts::ASSET_SOUNDS[7].0.to_string(),
+                                                    consts::ASSET_SOUNDS[7].0,
+                                                );
+                                                ui.selectable_value(
+                                                    &mut friend.sound.0,
+                                                    consts::ASSET_SOUNDS[8].0.to_string(),
+                                                    consts::ASSET_SOUNDS[8].0,
+                                                );
+                                                ui.selectable_value(
+                                                    &mut friend.sound.0,
+                                                    consts::ASSET_SOUNDS[9].0.to_string(),
+                                                    consts::ASSET_SOUNDS[9].0,
+                                                );
+                                                ui.selectable_value(
+                                                    &mut friend.sound.0,
+                                                    consts::ASSET_SOUNDS[10].0.to_string(),
+                                                    consts::ASSET_SOUNDS[10].0,
+                                                );
+                                                ui.selectable_value(
+                                                    &mut friend.sound.0,
+                                                    consts::ASSET_SOUNDS[11].0.to_string(),
+                                                    consts::ASSET_SOUNDS[11].0,
+                                                );
+                                                ui.selectable_value(
+                                                    &mut friend.sound.0,
+                                                    consts::ASSET_SOUNDS[12].0.to_string(),
+                                                    consts::ASSET_SOUNDS[12].0,
+                                                );
+                                            });
                                         // Handle changing the underlying sound played when notifying for this friend
                                         if &friend.sound.0 != before {
-                                            if let Some(s) = consts::ASSET_SOUNDS.iter().find(|_s| _s.0 == friend.sound.0) {
+                                            if let Some(s) = consts::ASSET_SOUNDS
+                                                .iter()
+                                                .find(|_s| _s.0 == friend.sound.0)
+                                            {
                                                 friend.sound = (s.0.to_string(), s.1.to_string());
-                                                let _ = self.s_sx.send(SoundMessage::PlaySound(friend.sound.1.clone()));
+                                                let _ = self.s_sx.send(SoundMessage::PlaySound(
+                                                    friend.sound.1.clone(),
+                                                ));
                                             }
                                         }
                                         ui.separator();
                                         // Finally the friend name box widget
                                         ui.add_sized(
                                             ui.available_size(),
-                                            TextEdit::singleline(&mut friend.name).vertical_align(Align::Center).interactive(!friend.enabled),
+                                            TextEdit::singleline(&mut friend.name)
+                                                .vertical_align(Align::Center)
+                                                .interactive(!friend.enabled),
                                         )
                                     })
                                 });
@@ -491,12 +607,15 @@ impl App for FriendsNotifierApp {
                                         .add_sized(
                                             ui.available_size(),
                                             Slider::new(&mut self.volume, 0..=100)
-                                                .handle_shape(egui::style::HandleShape::Rect { aspect_ratio: 1.2 })
+                                                .handle_shape(egui::style::HandleShape::Rect {
+                                                    aspect_ratio: 1.2,
+                                                })
                                                 .show_value(false),
                                         )
                                         .drag_stopped()
                                     {
-                                        let _ = self.s_sx.send(SoundMessage::SetVolume(self.volume));
+                                        let _ =
+                                            self.s_sx.send(SoundMessage::SetVolume(self.volume));
                                     };
                                 })
                             });
@@ -514,7 +633,10 @@ impl App for FriendsNotifierApp {
                                     "Notify ",
                                     0.0,
                                     TextFormat {
-                                        font_id: FontId { size: 10.0, ..Default::default() },
+                                        font_id: FontId {
+                                            size: 10.0,
+                                            ..Default::default()
+                                        },
                                         color: ctx.style().visuals.text_color(),
                                         ..Default::default()
                                     },
@@ -523,7 +645,10 @@ impl App for FriendsNotifierApp {
                                     "In Game",
                                     0.0,
                                     TextFormat {
-                                        font_id: FontId { size: 10.0, ..Default::default() },
+                                        font_id: FontId {
+                                            size: 10.0,
+                                            ..Default::default()
+                                        },
                                         color: Color32::from_rgb(10, 203, 230),
                                         ..Default::default()
                                     },
@@ -532,7 +657,10 @@ impl App for FriendsNotifierApp {
                                     " status",
                                     0.0,
                                     TextFormat {
-                                        font_id: FontId { size: 10.0, ..Default::default() },
+                                        font_id: FontId {
+                                            size: 10.0,
+                                            ..Default::default()
+                                        },
                                         color: ctx.style().visuals.text_color(),
                                         ..Default::default()
                                     },
@@ -549,7 +677,10 @@ impl App for FriendsNotifierApp {
                                     "Notify ",
                                     0.0,
                                     TextFormat {
-                                        font_id: FontId { size: 10.0, ..Default::default() },
+                                        font_id: FontId {
+                                            size: 10.0,
+                                            ..Default::default()
+                                        },
                                         color: ctx.style().visuals.text_color(),
                                         ..Default::default()
                                     },
@@ -558,7 +689,10 @@ impl App for FriendsNotifierApp {
                                     "Away",
                                     0.0,
                                     TextFormat {
-                                        font_id: FontId { size: 10.0, ..Default::default() },
+                                        font_id: FontId {
+                                            size: 10.0,
+                                            ..Default::default()
+                                        },
                                         color: Color32::from_rgb(255, 130, 0),
                                         ..Default::default()
                                     },
@@ -567,7 +701,10 @@ impl App for FriendsNotifierApp {
                                     " status",
                                     0.0,
                                     TextFormat {
-                                        font_id: FontId { size: 10.0, ..Default::default() },
+                                        font_id: FontId {
+                                            size: 10.0,
+                                            ..Default::default()
+                                        },
                                         color: ctx.style().visuals.text_color(),
                                         ..Default::default()
                                     },
@@ -616,7 +753,10 @@ impl Default for Friend {
             timer_id: Uuid::new_v4(),
             enabled: false,
             name: "".to_string(),
-            sound: (consts::ASSET_SOUNDS[0].0.to_string(), consts::ASSET_SOUNDS[0].1.to_string()),
+            sound: (
+                consts::ASSET_SOUNDS[0].0.to_string(),
+                consts::ASSET_SOUNDS[0].1.to_string(),
+            ),
             notify_timer: 5,
             is_repeat: false,
             status: FriendStatus::default(),

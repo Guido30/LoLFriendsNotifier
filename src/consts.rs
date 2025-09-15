@@ -1,19 +1,24 @@
-use eframe::egui::{self, Color32, ImageSource};
+use eframe::egui::{self, ImageSource, include_image};
 
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // Compiled assets
 pub const ASSET_ICON: &[u8] = include_bytes!("icons/icon.png");
-pub const ASSET_ICON_GEAR: ImageSource = egui::include_image!("icons/bootstrap_gear_fill.svg");
-pub const ASSET_ICON_PLUS: ImageSource = egui::include_image!("icons/bootstrap_plus.svg");
-pub const ASSET_ICON_DASH: ImageSource = egui::include_image!("icons/bootstrap_dash.svg");
-pub const ASSET_ICON_CHECK: ImageSource = egui::include_image!("icons/bootstrap_check.svg");
-pub const ASSET_ICON_REPEAT: ImageSource = egui::include_image!("icons/bootstrap_repeat.svg");
-pub const ASSET_ICON_CIRCLE_FILLED_GREY: ImageSource = egui::include_image!("icons/vscode-codicon_circle-filled-grey.svg");
-pub const ASSET_ICON_CIRCLE_FILLED_RED: ImageSource = egui::include_image!("icons/vscode-codicon_circle-filled-red.svg");
-pub const ASSET_ICON_CIRCLE_FILLED_GREEN: ImageSource = egui::include_image!("icons/vscode-codicon_circle-filled-green.svg");
-pub const ASSET_ICON_CIRCLE_FILLED_CYAN: ImageSource = egui::include_image!("icons/vscode-codicon_circle-filled-cyan.svg");
-pub const ASSET_ICON_CIRCLE_FILLED_YELLOW: ImageSource = egui::include_image!("icons/vscode-codicon_circle-filled-yellow.svg");
+pub const ASSET_ICON_GEAR: ImageSource = include_image!("icons/bootstrap_gear_fill.svg");
+pub const ASSET_ICON_PLUS: ImageSource = include_image!("icons/bootstrap_plus.svg");
+pub const ASSET_ICON_DASH: ImageSource = include_image!("icons/bootstrap_dash.svg");
+pub const ASSET_ICON_CHECK: ImageSource = include_image!("icons/bootstrap_check.svg");
+pub const ASSET_ICON_REPEAT: ImageSource = include_image!("icons/bootstrap_repeat.svg");
+pub const ASSET_ICON_CIRCLE_FILLED_GREY: ImageSource =
+    include_image!("icons/vscode-codicon_circle-filled-grey.svg");
+pub const ASSET_ICON_CIRCLE_FILLED_RED: ImageSource =
+    include_image!("icons/vscode-codicon_circle-filled-red.svg");
+pub const ASSET_ICON_CIRCLE_FILLED_GREEN: ImageSource =
+    include_image!("icons/vscode-codicon_circle-filled-green.svg");
+pub const ASSET_ICON_CIRCLE_FILLED_CYAN: ImageSource =
+    include_image!("icons/vscode-codicon_circle-filled-cyan.svg");
+pub const ASSET_ICON_CIRCLE_FILLED_YELLOW: ImageSource =
+    include_image!("icons/vscode-codicon_circle-filled-yellow.svg");
 
 // Sound files are loaded at runtime once to avoid increasing binary size
 // they must be in the defined paths at runtime otherwise the sound thread will error
