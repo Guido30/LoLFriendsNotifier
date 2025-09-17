@@ -74,9 +74,9 @@ pub struct ApiFriend {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct Sound {
-    label: String,
-    path: String,
+pub struct Sound {
+    pub label: String,
+    pub path: String,
 }
 
 #[derive(Debug, Clone, Default)]
